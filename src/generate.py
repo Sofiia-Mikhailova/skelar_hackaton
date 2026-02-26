@@ -7,12 +7,7 @@ from llm_client import LLMClient
 
 fake = Faker()
 
-def get_random_timestamp():
-    start_date = datetime(2024, 1, 1)
-    random_days = random.randint(0, 60)
-    return start_date + timedelta(days=random_days, hours=random.randint(8, 20), minutes=random.randint(0, 59))
-
-def generate_skelar_dataset(count=50):
+def generate_skelar_dataset(count=150):
     client = LLMClient()
     dataset_clean = []
     dataset_reference = []
@@ -29,70 +24,79 @@ def generate_skelar_dataset(count=50):
         {"type": "bad_escalation", "label": "unsatisfied", "mistake": "unnecessary_escalation"}
     ]
 
-    for i in range(1, count + 1):
+    generated_count = 0
+    while generated_count < count:
         topic = random.choice(topics)
-        if i % 2 == 0:
-            scenario = random.choice([s for s in scenarios if s["type"].startswith("success") or s["type"] == "refund_success"])
-        else:
-            scenario = random.choice([s for s in scenarios if s["label"] != "satisfied"])
+        scenario = random.choice(scenarios) if generated_count % 2 != 0 else random.choice([s for s in scenarios if s["label"] == "satisfied"])
             
         customer_name = fake.name()
-        start_time = get_random_timestamp()
+        is_structured = random.choice([True, False])
+        customer_style = "Structured, polite" if is_structured else "Messenger style (short messages, typos, slang, no caps)"
 
         prompt = f"""
         Generate a realistic customer support chat.
         Topic: {topic}. Scenario: {scenario['type']}. 
-        Customer satisfaction: {scenario['label']}. Agent mistake: {scenario['mistake']}.
+        Target Satisfaction: {scenario['label']}. Agent mistake: {scenario['mistake']}.
+        
+        CUSTOMER: {customer_name}, Style: {customer_style}
 
-        STRICT STYLE RULES FOR CUSTOMER:
-        1. BE HUMAN: Use typos and casual language. 
-        2. SPLIT MESSAGES: Send 2-3 short messages instead of one frequently.
-        3. INFORMAL: Use short phrases, slang, or emotional punctuation.
-        4. ROLE: "customer".
+        STRICT AGENT RULES:
+        1. Professional, polite, proper grammar/capitalization.
+        2. NO slang, NO typos.
+        3. If mistake required ({scenario['mistake']}), stay professional in tone.
 
-        STRICT RULES FOR AGENT:
-        1. Professional tone, but include mistake if specified: {scenario['mistake']}.
-        2. ROLE: "agent".
+        SATISFACTION LOGIC:
+        - If 'hidden_dissatisfaction': Customer says "thanks" or "ok", but issue NOT solved. Label: 'unsatisfied'.
+        - If problem NOT solved = 'unsatisfied' regardless of customer tone.
 
-        Return ONLY JSON structure with "id", "customer_name", and "messages" (role, text, timestamp).
+        Return ONLY JSON:
+        {{
+            "id": {generated_count + 1},
+            "customer_name": "{customer_name}",
+            "messages": [
+                {{"role": "customer", "text": "...", "timestamp": "..."}},
+                {{"role": "agent", "text": "...", "timestamp": "..."}}
+            ]
+        }}
         """
         chat_data = client.get_json_response(prompt)
         
-        if chat_data:
-            messages = chat_data.get("messages", [])
+        if chat_data and isinstance(chat_data.get("messages"), list) and len(chat_data["messages"]) > 0:
+            messages = chat_data["messages"]
             
-            # 1. ЧИСТИЙ ДАТАСЕТ (без топіка і сценаріїв)
             clean_item = {
-                "id": i,
-                "customer_name": chat_data.get("customer_name", customer_name),
+                "id": generated_count + 1,
+                "customer_name": customer_name,
                 "messages": messages
             }
             
-            # 2. РЕФЕРЕНСНИЙ ДАТАСЕТ (з усіма мітками)
-            agent_msgs = [m["text"] for m in messages if m["role"] == "agent"]
-            avg_agent_len = sum(len(m.split()) for m in agent_msgs) / len(agent_msgs) if agent_msgs else 0
+            agent_msgs = [m.get("text", "") for m in messages if isinstance(m, dict) and m.get("role") == "agent"]
+            avg_agent_len = sum(len(str(m).split()) for m in agent_msgs) / len(agent_msgs) if agent_msgs else 0
+            total_words = sum(len(str(m.get("text", "")).split()) for m in messages if isinstance(m, dict))
             
             ref_item = clean_item.copy()
             ref_item["topic"] = topic
             ref_item["reference_data"] = {
+                "customer_behavior": "structured" if is_structured else "messenger",
                 "true_scenario": scenario["type"],
                 "true_satisfaction": scenario["label"],
                 "true_mistake": scenario["mistake"],
+                "is_resolved": "no" if scenario["mistake"] in ["no_resolution", "ignored_question"] or scenario["label"] == "unsatisfied" else "yes",
                 "metrics": {
                     "message_count": len(messages),
-                    "total_word_count": sum(len(m["text"].split()) for m in messages),
+                    "total_word_count": total_words,
                     "avg_agent_response_length": round(avg_agent_len, 2)
                 }
             }
             
             dataset_clean.append(clean_item)
             dataset_reference.append(ref_item)
+            generated_count += 1
         
-        time.sleep(1)
+        time.sleep(0.1)
 
     with open("dataset_clean.json", "w", encoding="utf-8") as f:
         json.dump(dataset_clean, f, ensure_ascii=False, indent=4)
-    
     with open("dataset_reference.json", "w", encoding="utf-8") as f:
         json.dump(dataset_reference, f, ensure_ascii=False, indent=4)
 
