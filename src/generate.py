@@ -1,7 +1,6 @@
 ﻿import json
 import time
 import random
-from datetime import datetime, timedelta
 from faker import Faker
 from llm_client import LLMClient
 
@@ -13,7 +12,6 @@ def generate_skelar_dataset(count=150):
     dataset_reference = []
     
     topics = ["billing", "tech_error", "account_access", "pricing", "shipping", "promo_code"]
-    
     scenarios = [
         {"type": "success", "label": "satisfied", "mistake": "none"},
         {"type": "refund_success", "label": "satisfied", "mistake": "none"},
@@ -21,79 +19,92 @@ def generate_skelar_dataset(count=150):
         {"type": "agent_error", "label": "unsatisfied", "mistake": "incorrect_info"},
         {"type": "rude_agent", "label": "unsatisfied", "mistake": "rude_tone"},
         {"type": "ignored_issue", "label": "neutral", "mistake": "ignored_question"},
-        {"type": "bad_escalation", "label": "unsatisfied", "mistake": "unnecessary_escalation"}
+        {"type": "customer_silent", "label": "neutral", "mistake": "none"}
     ]
+
+    half = count // 2
+    satisfied_pool = [s for s in scenarios if s["label"] == "satisfied"]
+    problematic_pool = [s for s in scenarios if s["label"] != "satisfied"]
+    task_scenarios = (
+        [random.choice(satisfied_pool) for _ in range(half)] +
+        [random.choice(problematic_pool) for _ in range(count - half)]
+    )
+    random.shuffle(task_scenarios)
 
     generated_count = 0
     while generated_count < count:
+        scenario = task_scenarios[generated_count]
         topic = random.choice(topics)
-        scenario = random.choice(scenarios) if generated_count % 2 != 0 else random.choice([s for s in scenarios if s["label"] == "satisfied"])
-            
         customer_name = fake.name()
-        is_structured = random.choice([True, False])
-        customer_style = "Structured, polite" if is_structured else "Messenger style (short messages, typos, slang, no caps)"
+        is_messenger = random.choice([True, False])
 
         prompt = f"""
-        Generate a realistic customer support chat.
-        Topic: {topic}. Scenario: {scenario['type']}. 
-        Target Satisfaction: {scenario['label']}. Agent mistake: {scenario['mistake']}.
-        
-        CUSTOMER: {customer_name}, Style: {customer_style}
-
-        STRICT AGENT RULES:
-        1. Professional, polite, proper grammar/capitalization.
-        2. NO slang, NO typos.
-        3. If mistake required ({scenario['mistake']}), stay professional in tone.
+        Generate a unique customer support chat.
+        Topic: {topic}. Scenario: {scenario['type']}. Target Satisfaction: {scenario['label']}. Agent mistake: {scenario['mistake']}.
 
         SATISFACTION LOGIC:
-        - If 'hidden_dissatisfaction': Customer says "thanks" or "ok", but issue NOT solved. Label: 'unsatisfied'.
+        - If 'hidden_dissatisfaction': Customer says "thanks" or "ok", but issue NOT solved. Label: 'hidden_dissatisfaction'.
         - If problem NOT solved = 'unsatisfied' regardless of customer tone.
+
+        CUSTOMER RULES:
+        1. BE HUMAN: Use slang, casual language, emotional punctuation (!!!, ?). 
+        2. NO REPETITION: Do NOT use "I appreciate it" or "I guess". Use: "cool", "fine", "noted", "thx", "ok then", "finally".
+        3. SPLIT MESSAGES: Frequently send 2-3 short messages instead of one long block. If Messenger style, always start with "hi" and the issue separately.
+        4. STYLE: {"Messenger (typos, no caps, short)" if is_messenger else "Informal but clear"}.
+
+        AGENT RULES:
+        1. PROFESSIONAL TONE: Always polite, formal, and helpful. No slang/abbreviations.
+        2. NO "(pause)". If agent needs time, they write: "Please wait a moment while I check this for you."
+        3. INACTIVITY LOGIC: If scenario is 'customer_silent':
+           - Agent asks if user is there.
+           - If no reply, agent warns: "I haven't heard from you. I will close this chat in 2 minutes if there's no interaction."
+           - If still no reply, agent professionally closes the chat.
+        4. MULTI-QUESTION: If the customer asks a side question, agent must answer it sequentially.
 
         Return ONLY JSON:
         {{
             "id": {generated_count + 1},
             "customer_name": "{customer_name}",
             "messages": [
-                {{"role": "customer", "text": "...", "timestamp": "..."}},
-                {{"role": "agent", "text": "...", "timestamp": "..."}}
+                {{"role": "customer", "text": "...", "timestamp": "..."}}
             ]
         }}
         """
-        chat_data = client.get_json_response(prompt)
-        
-        if chat_data and isinstance(chat_data.get("messages"), list) and len(chat_data["messages"]) > 0:
-            messages = chat_data["messages"]
+
+        try:
+            chat_data = client.get_json_response(prompt, model="llama-3.1-8b-instant", temperature=0.9)
             
-            clean_item = {
-                "id": generated_count + 1,
-                "customer_name": customer_name,
-                "messages": messages
-            }
-            
-            agent_msgs = [m.get("text", "") for m in messages if isinstance(m, dict) and m.get("role") == "agent"]
-            avg_agent_len = sum(len(str(m).split()) for m in agent_msgs) / len(agent_msgs) if agent_msgs else 0
-            total_words = sum(len(str(m.get("text", "")).split()) for m in messages if isinstance(m, dict))
-            
-            ref_item = clean_item.copy()
-            ref_item["topic"] = topic
-            ref_item["reference_data"] = {
-                "customer_behavior": "structured" if is_structured else "messenger",
-                "true_scenario": scenario["type"],
-                "true_satisfaction": scenario["label"],
-                "true_mistake": scenario["mistake"],
-                "is_resolved": "no" if scenario["mistake"] in ["no_resolution", "ignored_question"] or scenario["label"] == "unsatisfied" else "yes",
-                "metrics": {
-                    "message_count": len(messages),
-                    "total_word_count": total_words,
-                    "avg_agent_response_length": round(avg_agent_len, 2)
+            if chat_data and "messages" in chat_data and len(chat_data["messages"]) > 0:
+                valid_messages = [m for m in chat_data["messages"] if isinstance(m, dict)]
+                
+                if not valid_messages:
+                    continue
+
+                item = {
+                    "id": generated_count + 1,
+                    "customer_name": customer_name,
+                    "messages": valid_messages
                 }
-            }
-            
-            dataset_clean.append(clean_item)
-            dataset_reference.append(ref_item)
-            generated_count += 1
-        
-        time.sleep(0.1)
+                
+                ref_item = item.copy()
+                ref_item["reference_data"] = {
+                    "topic": topic,
+                    "behavior": "messenger" if is_messenger else "structured",
+                    "scenario": scenario["type"],
+                    "label": scenario["label"],
+                    "mistake": scenario["mistake"]
+                }
+                
+                dataset_clean.append(item)
+                dataset_reference.append(ref_item)
+                
+                generated_count += 1
+                print(f"Chat #{generated_count}")
+
+        except Exception as e:
+            if "429" in str(e):
+                time.sleep(60)
+            continue
 
     with open("dataset_clean.json", "w", encoding="utf-8") as f:
         json.dump(dataset_clean, f, ensure_ascii=False, indent=4)
