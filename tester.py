@@ -1,11 +1,18 @@
 import json
+import os
 
 def run_test(reference_file="dataset_reference.json", results_file="analysis_results.json"):
     try:
+        if not os.path.exists(reference_file) or not os.path.exists(results_file):
+            print("Error: One of the files is missing.")
+            return
+
         with open(reference_file, "r", encoding="utf-8") as f:
             ref_data = {item["id"]: item["reference_data"] for item in json.load(f)}
+        
         with open(results_file, "r", encoding="utf-8") as f:
             res_data = {item["id"]: item["analysis"] for item in json.load(f)}
+            
     except Exception as e:
         print(f"Error loading files: {e}")
         return
@@ -18,7 +25,7 @@ def run_test(reference_file="dataset_reference.json", results_file="analysis_res
         if idx not in ref_data:
             continue
         
-        true_val = ref_data[idx]["true_satisfaction"]
+        true_val = ref_data[idx].get("label") 
         pred_val = analysis.get("satisfaction")
 
         if true_val == pred_val:
@@ -28,7 +35,7 @@ def run_test(reference_file="dataset_reference.json", results_file="analysis_res
                 "id": idx,
                 "true": true_val,
                 "pred": pred_val,
-                "scenario": ref_data[idx]["true_scenario"]
+                "scenario": ref_data[idx].get("scenario")
             })
 
     accuracy = (correct_satisfaction / total) * 100 if total > 0 else 0
@@ -39,7 +46,8 @@ def run_test(reference_file="dataset_reference.json", results_file="analysis_res
     print("-" * 30)
 
     if mismatches:
-        print("\nTOP 5 MISMATCHES (Sample):")
+        print("\nMISMATCHES EXAMPLES:")
+
         for m in mismatches:
             print(f"ID {m['id']} | Scenario: {m['scenario']} | Expected: {m['true']} | Got: {m['pred']}")
 

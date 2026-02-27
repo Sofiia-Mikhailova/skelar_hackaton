@@ -1,4 +1,4 @@
-import json
+ï»¿import json
 import time
 import re
 from llm_client import LLMClient
@@ -23,43 +23,57 @@ def analyze_support_performance(input_file="dataset_clean.json", output_file="an
     total = len(dataset)
 
     for index, item in enumerate(dataset, 1):
-        print(f"Progress: {index}/{total} | {item.get('customer_name')}", end="\r")
+        chat_id = item.get("id")
+        customer_name = item.get("customer_name", "Unknown")
+        
+        print(f"Progress: {index}/{total} | {customer_name}", end="\r")
 
         history = ""
         for m in item.get("messages", []):
             history += f"[{m.get('timestamp', '')}] {m.get('role', '').upper()}: {m.get('text', '')}\n"
 
         prompt = f"""
-        Role: Senior Support Auditor. Analyze the dialogue.
-        Logic:
-        1. If problem NOT solved but customer says 'thanks/ok', satisfaction is 'unsatisfied'.
-        2. Handle fragmented messages (messenger style) as one thought.
-        3. Be deterministic. Ignore politeness if task failed.
-
-        DIALOGUE:
+        Rules:
+        - Determine the topic (intent) from: payment_issue, tech_error, account_access, pricing_plan, refund_request, other.
+          If not one of these, topic = 'other'.
+        - Determine satisfaction:
+            - satisfied / neutral / unsatisfied
+            - hidden_dissatisfaction: if customer says "thanks" or "ok" but issue not solved â†’ unsatisfied
+            - aggressive_customer: aggressive tone alone does NOT mean unsatisfied; if issue resolved â†’ satisfied
+            - customer_silent: if no reply, satisfaction = neutral
+            - conflict_escalation / policy_clash / agent mistakes may reduce satisfaction
+        - Determine quality_score (1-5):
+            1 - Rude agent or zero help
+            2 - Major mistakes (ignored_question, incorrect_info, unnecessary_escalation) or very slow
+            3 - Issue solved but agent robotic, slow, or ignored side question
+            4 - Good service, main issue solved quickly, minor misses
+            5 - Perfect, polite, fast, all questions answered
+        - Determine agent_mistakes: list any of ignored_question, incorrect_info, rude_tone, no_resolution, unnecessary_escalation
+        - Customer tone alone does NOT determine satisfaction; resolved issue is key
+        
+        CHAT HISTORY:
         {history}
 
         RETURN ONLY JSON:
         {{
-            "intent": "billing/tech_error/account_access/pricing/shipping/promo_code/other",
-            "satisfaction": "satisfied/neutral/unsatisfied",
-            "quality_score": 1-5,
-            "agent_mistakes": ["ignored_question", "incorrect_info", "rude_tone", "no_resolution", "unnecessary_escalation", "slow_response", "none"],
-            "resolution_speed": "fast/average/slow"
+            "id": {chat_id},
+            "intent": "...",
+            "satisfaction": "...",
+            "quality_score": ...,
+            "agent_mistakes": [...]
         }}
         """
 
         while True:
             try:
-                # Âèêëèê ñàìå ìîäåë³ 70B
                 response = client.get_json_response(prompt, model="llama-3.3-70b-versatile", temperature=0.0)
                 
                 data = response if isinstance(response, dict) else extract_json(str(response))
                 
                 if data:
                     results.append({
-                        "id": item.get("id"),
-                        "customer_name": item.get("customer_name"),
+                        "id": chat_id,
+                        "customer_name": customer_name,
                         "analysis": data
                     })
                     break
