@@ -4,10 +4,6 @@ import random
 from faker import Faker
 from llm_client import LLMClient
 
-SEED = 42
-random.seed(SEED)
-Faker.seed(SEED)
-
 fake = Faker()
 
 def generate_skelar_dataset(count=150):
@@ -33,6 +29,7 @@ def generate_skelar_dataset(count=150):
     half = count // 2
     satisfied_pool = [s for s in scenarios if s["label"] == "satisfied"]
     problematic_pool = [s for s in scenarios if s["label"] != "satisfied"]
+    
     task_scenarios = (
         [random.choice(satisfied_pool) for _ in range(half)] +
         [random.choice(problematic_pool) for _ in range(count - half)]
@@ -108,9 +105,8 @@ def generate_skelar_dataset(count=150):
                 temperature=0.8
             )
             
-            if chat_data and "messages" in chat_data and len(chat_data["messages"]) > 0:
-                valid_messages = [m for m in chat_data["messages"] if isinstance(m, dict)]
-                generated_score = chat_data.get("quality_score", 3)
+            if isinstance(chat_data, dict) and chat_data.get("messages"):
+                valid_messages = [m for m in chat_data["messages"] if isinstance(m, dict) and "text" in m]
                 
                 if not valid_messages:
                     continue
@@ -128,14 +124,13 @@ def generate_skelar_dataset(count=150):
                     "scenario": scenario["type"],
                     "label": scenario["label"],
                     "mistake": scenario["mistake"],
-                    "quality_score": generated_score
+                    "quality_score": chat_data.get("quality_score", 3)
                 }
                 
                 dataset_clean.append(item)
                 dataset_reference.append(ref_item)
-                
                 generated_count += 1
-                print(f"Chat #{generated_count}")
+                print(f"Chat #{generated_count} generated")
 
         except Exception as e:
             if "429" in str(e):
