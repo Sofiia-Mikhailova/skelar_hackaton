@@ -1,6 +1,7 @@
 ﻿import json
 import time
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from llm_client import LLMClient
 
 
@@ -12,18 +13,18 @@ def extract_json(text):
         return None
 
 
-def analyze_support_performance(input_file="dataset_clean.json", output_file="analysis_results.json"):
-    client = LLMClient()
+def chunked(data, size):
+    for i in range(0, len(data), size):
+        yield data[i:i + size]
 
-    try:
-        with open(input_file, "r", encoding="utf-8") as f:
-            dataset = json.load(f)
-    except:
-        print("Error: Input file not found.")
-        return
 
-    results = []
-    total = len(dataset)
+def analyze_single(item, client):
+    chat_id = item.get("id")
+    customer_name = item.get("customer_name", "Unknown")
+
+    history = ""
+    for m in item.get("messages", []):
+        history += f"[{m.get('timestamp', '')}] {m.get('role', '').upper()}: {m.get('text', '')}\n"
 
     valid_scenarios = [
         "success", "refund_success", "hidden_dissatisfaction", "agent_error",
@@ -31,17 +32,7 @@ def analyze_support_performance(input_file="dataset_clean.json", output_file="an
         "conflict_escalation", "aggressive_customer", "policy_clash"
     ]
 
-    for index, item in enumerate(dataset, 1):
-        chat_id = item.get("id")
-        customer_name = item.get("customer_name", "Unknown")
-
-        print(f"Progress: {index}/{total} | {customer_name}", end="\r")
-
-        history = ""
-        for m in item.get("messages", []):
-            history += f"[{m.get('timestamp', '')}] {m.get('role', '').upper()}: {m.get('text', '')}\n"
-
-        prompt = f"""
+    prompt = f"""
         Analyze the following customer support chat and return a structured evaluation.
 
         The correct customer name is: {customer_name}
@@ -102,30 +93,63 @@ def analyze_support_performance(input_file="dataset_clean.json", output_file="an
         }}
         """
 
-        while True:
-            try:
-                response = client.get_json_response(prompt, model="llama-3.3-70b-versatile", temperature=0)
+    while True:
+        try:
+            response = client.get_json_response(
+                prompt,
+                model="llama-3.3-70b-versatile",
+                temperature=0
+            )
 
-                data = response if isinstance(response, dict) else extract_json(str(response))
+            data = response if isinstance(response, dict) else extract_json(str(response))
 
-                if data:
-                    results.append({
-                        "id": chat_id,
-                        "customer_name": customer_name,
-                        "analysis": data
-                    })
-                    break
-            except Exception as e:
-                if "429" in str(e):
-                    time.sleep(70)
-                else:
-                    print(f"\nError on ID {chat_id}: {e}")
-                    break
+            if data:
+                return {
+                    "id": chat_id,
+                    "customer_name": customer_name,
+                    "analysis": data
+                }
+
+        except Exception as e:
+            if "429" in str(e):
+                time.sleep(5)
+            else:
+                return None
+
+
+def analyze_support_performance(input_file="dataset_clean.json", output_file="analysis_results.json"):
+    client = LLMClient()
+
+    with open(input_file, "r", encoding="utf-8") as f:
+        dataset = json.load(f)
+
+    results = []
+
+    batches = list(chunked(dataset, 5))
+
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = []
+        for batch in batches:
+            for item in batch:
+                futures.append(executor.submit(analyze_single, item, client))
+
+        total = len(futures)
+        done = 0
+
+        for future in as_completed(futures):
+            result = future.result()
+            if result:
+                results.append(result)
+                done += 1
+                print(f"Processed: {done}/{total}", end="\r")
+
+                with open(output_file, "w", encoding="utf-8") as f:
+                    json.dump(results, f, ensure_ascii=False, indent=4)
+
+    results.sort(key=lambda x: x["id"])
 
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=4)
-
-    print(f"\nDone. Analysis saved to {output_file}")
 
 
 if __name__ == "__main__":
