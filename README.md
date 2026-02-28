@@ -4,14 +4,15 @@
 
 Цей репозиторій містить професійну pipeline-систему для генерації синтетичних датасетів клієнтської підтримки з високою варіативністю та проведення високоточного аудиту якості за допомогою великих мовних моделей (LLM).
 
-Система розроблена для вирішення кількох ключових проблем підтримки:
+Система розроблена для вирішення кількох ключових проблем:
 
 - Прихована незадоволеність — коли клієнт формально дякує, але його питання так і не вирішили
 - Помилки агента — неправильна інформація, ігнорування запиту, грубий тон
 - Складні сценарії — проблеми з оплатою, технічні збої, доступ до акаунту, питання по тарифу, повернення коштів
+- Оцінка якості роботи агента - чи вирішено проблему, як саме вирішено/не вирішено проблему, як швидко вирішено проблему (трекінг часу)
 
 Для генерації використовується легша модель `llama-3.1-8b-instant`, а для аналізу — потужніша `llama-3.3-70b-versatile`. Вибір і конфігурація обох моделей централізовані в `llm_client.py`.
-У папці `utils/` міститься скрипт для бенчмаркінгу, який валідує результати аналізатора шляхом багаторазових запусків на одних і тих самих діалогах. У випадках розбіжностей проводилась ручна перевірка — незалежний аналіз чату людиною давав той самий результат, що й модель. Це підтверджує надійність та точність аналізатора.
+У папці `utils/` міститься скрипт для бенчмаркінгу, який валідує результати аналізатора шляхом багаторазових запусків на одних і тих самих діалогах. У випадках розбіжностей проводилась ручна перевірка — незалежний аналіз чату людиною давав той самий результат, що й аналізатор. Це підтверджує надійність та точність аналізатора.
 
 ### Структура проєкту
 
@@ -36,7 +37,7 @@
 - **Природний ритм повідомлень:** клієнт надсилає привітання та проблему у **2–3 окремих повідомленнях** (наприклад, «hi» → «i have a problem»), агент аналізує ці повідомлення як одну думку.
 - **Мовна реалістичність:** використання сленгу, скорочень (thx, ok then, noted), відсутність великих літер, в той час як агент зберігає професійний профіль.
 - **Емоційний «шум»:** періодичне використання **ALL CAPS**, граматичних помилок або надмірної пунктуації.
-- **Різні сценарії завершення:** не всі діалоги завершуються вирішенням. Генеруються сценарії «Customer Silent», де клієнт перестає відповідати, агент очікує повідомлення деякий час, після чого повідомляє про закриття діалогу за декілька хвилин.
+- **Різні сценарії завершення:** не всі діалоги завершуються вирішенням. Генеруються сценарії «Customer Silent», де клієнт перестає відповідати, агент очікує повідомлення деякий час, після чого повідомляє про закриття діалогу.
 
 ### 2. Аналіз за принципом «Спочатку результат» (`analyze.py`)
 
@@ -127,10 +128,11 @@ The system is designed to tackle several key support challenges:
 - **Hidden dissatisfaction** — when a customer formally says "thanks" but their issue was never actually resolved
 - **Agent mistakes** — wrong information, ignored requests, rude tone
 - **Complex scenarios** — payment issues, technical errors, account access, billing questions, refunds
+- **Agent performance evaluation** — whether the issue was resolved, how it was or wasn't resolved, and how quickly it was resolved (time tracking)
 
 For generation, the lighter `llama-3.1-8b-instant` model is used, while the more powerful `llama-3.3-70b-versatile` handles analysis. The selection and configuration of both models are centralized in `llm_client.py`.
 
-The `utils/` folder contains a benchmarking script that validates the analyzer's results through repeated runs on the same dialogues. In cases of discrepancy, manual review was conducted — independent human analysis of the chat consistently reached the same conclusion as the model, confirming the analyzer's reliability and accuracy.
+The `utils/` folder contains a benchmarking script that validates the analyzer's results through repeated runs on the same dialogues. In cases of discrepancy, manual review was conducted — independent human analysis of the chat consistently reached the same conclusion as the analyzer, confirming the analyzer's reliability and accuracy.
 
 ---
 
