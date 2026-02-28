@@ -15,16 +15,17 @@ def generate_skelar_dataset(count=150):
     scenarios = [
         {"type": "success", "label": "satisfied", "mistake": "none"},
         {"type": "refund_success", "label": "satisfied", "mistake": "none"},
-        {"type": "hidden_dissatisfaction", "label": "unsatisfied", "mistake": "no_resolution"},
+        {"type": "hidden_dissatisfaction", "label": "hidden_dissatisfaction", "mistake": "no_resolution"},  # ← changed
         {"type": "agent_error", "label": "unsatisfied", "mistake": "incorrect_info"},
         {"type": "rude_agent", "label": "unsatisfied", "mistake": "rude_tone"},
         {"type": "ignored_issue", "label": "unsatisfied", "mistake": "ignored_question"},
-        {"type": "unnecessary_escalation", "label": "unsatisfied", "mistake": "unnecessary_escalation"},
+        {"type": "unnecessary_escalation", "label": "neutral", "mistake": "unnecessary_escalation"},  # ← changed
         {"type": "customer_silent", "label": "neutral", "mistake": "none"},
         {"type": "conflict_escalation", "label": "unsatisfied", "mistake": "none"},
         {"type": "aggressive_customer", "label": "satisfied", "mistake": "none"},
         {"type": "policy_clash", "label": "unsatisfied", "mistake": "none"}
     ]
+
 
     half = count // 2
     satisfied_pool = [s for s in scenarios if s["label"] == "satisfied"]
@@ -52,20 +53,27 @@ def generate_skelar_dataset(count=150):
         - If the topic is not one of payment_issue, tech_error, account_access, pricing_plan, refund_request, set topic = 'other'.
 
         MISTAKE & SATISFACTION LOGIC:
+
+        MISTAKE RULES:
         - If 'hidden_dissatisfaction': Customer says "thanks" or "ok", but issue NOT solved.
         - If 'rude_tone': Agent must be rude, passive-aggressive or dismissive.
         - If 'incorrect_info': Agent provides wrong data/policy.
         - If 'ignored_question': Agent ignores one of the customer's questions.
         - If 'unnecessary_escalation': Agent escalates to supervisor/support tier without real need, even though issue could be solved directly.
-        - If problem NOT solved = 'unsatisfied' regardless of customer tone.
-        - Customer tone alone does NOT determine satisfaction. Final satisfaction depends on whether the issue was actually resolved.
 
-        QUALITY SCORE (1-5) CALCULATION:
-        1 - Rude agent, or zero help provided.
-        2 - Major mistakes (wrong info, ignored 50% of questions, unnecessary escalation, asking for passwords, or calling customer by WRONG name).
-        3 - Issue didn`t solved but agent was helpful. or the tone was robotic, slow, or ignored a side question.
-        4 - Good service, solved the main issue quickly, but maybe missed a tiny detail.
-        5 - Perfect! Fast responses, all questions (even side ones) answered, polite.
+        SATISFACTION LABELS — use exactly one of: satisfied, neutral, hidden_dissatisfaction, unsatisfied
+
+        - satisfied: issue fully resolved, customer happy (even if they were aggressive initially).
+        - neutral: customer went silent OR agent escalated unnecessarily without resolving.
+        - hidden_dissatisfaction: customer says "ok", "thanks", "fine" BUT issue was NOT actually resolved. Surface tone looks positive, real outcome is negative.
+        - unsatisfied: issue unresolved AND customer is clearly frustrated/angry, OR agent made a major mistake (rude_tone, incorrect_info, ignored_question).
+
+        CRITICAL RULES:
+        - Customer tone alone does NOT determine satisfaction. Final satisfaction depends on whether the issue was actually resolved.
+        - hidden_dissatisfaction ≠ unsatisfied. Do NOT use unsatisfied when customer is politely accepting an unresolved issue.
+        - If problem NOT solved = at minimum hidden_dissatisfaction, or unsatisfied if customer is visibly frustrated.
+        - Aggressive customer tone alone does NOT mean unsatisfied — if issue resolved → satisfied.
+        - policy_clash and conflict_escalation → unsatisfied (situation-driven, not agent error).
         
         CONFLICT & PROBLEM LOGIC:
         - If 'conflict_escalation': Customer is extremely frustrated, uses CAPS, and demands to speak with a supervisor/manager. Agent must stay calm and follow protocol.
